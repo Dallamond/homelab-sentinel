@@ -1,0 +1,27 @@
+# Despliega esto en un host ADICIONAL (ej. el NAS) cuando quieras que
+# también envíe sus logs al servidor central que ya corre en el mini PC.
+#
+#   SERVER_URL=http://<ip-del-minipc>:8088 AGENT_API_KEY=<misma-key-que-el-servidor> \
+#   docker compose -f docker-compose.agent.yml up -d
+#
+# Este contenedor NO expone dashboard ni base de datos: solo descubre,
+# filtra por lo que hayas activado desde el dashboard del servidor, y
+# empuja eventos por HTTP.
+
+services:
+  sentinel-agent:
+    build: .
+    image: homelab-sentinel:latest
+    container_name: homelab-sentinel-agent
+    restart: unless-stopped
+    command: ["python", "-m", "app.agent"]
+    environment:
+      ROLE: agent
+      HOST_NAME: ${HOST_NAME:-nas}
+      SERVER_URL: ${SERVER_URL:-http://minipc:8088}
+      AGENT_API_KEY: ${AGENT_API_KEY:-change-me}
+    volumes:
+      - /var/log/journal:/var/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - /run/systemd/journal:/run/systemd/journal:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro

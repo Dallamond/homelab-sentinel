@@ -1,0 +1,62 @@
+# Copia este archivo a rules.yaml y ajústalo a tu homelab.
+# Cada regla evalúa eventos en una ventana deslizante de tiempo.
+#
+# match:            patrón regex (case-insensitive) contra el mensaje del log
+# min_severity:      severidad mínima del evento para que cuente (debug < info < warning < error < critical)
+# source_type:       journald | docker | any
+# threshold:         nº de coincidencias necesarias dentro de la ventana para disparar la alerta
+# window_seconds:    tamaño de la ventana deslizante
+# cooldown_seconds:  tiempo mínimo entre alertas repetidas de la misma regla (evita spam)
+# severity:          severidad de la alerta resultante
+# notify:            lista de notificadores a usar: telegram, email
+
+rules:
+  - name: "OOM killer"
+    match: "Out of memory|oom-kill|oom_kill"
+    min_severity: warning
+    source_type: any
+    threshold: 1
+    window_seconds: 60
+    cooldown_seconds: 900
+    severity: critical
+    notify: [telegram, email]
+
+  - name: "Fallo repetido de servicio"
+    match: "\\bfailed\\b|\\berror\\b"
+    min_severity: error
+    source_type: any
+    threshold: 5
+    window_seconds: 300
+    cooldown_seconds: 1800
+    severity: error
+    notify: [telegram]
+
+  - name: "Intentos de login fallidos (SSH)"
+    match: "Failed password|authentication failure"
+    min_severity: warning
+    source_type: journald
+    threshold: 3
+    window_seconds: 300
+    cooldown_seconds: 900
+    severity: warning
+    notify: [telegram, email]
+
+  - name: "Contenedor reiniciando en bucle"
+    match: "Restarting|exited with code"
+    min_severity: warning
+    source_type: docker
+    threshold: 3
+    window_seconds: 600
+    cooldown_seconds: 1800
+    severity: error
+    notify: [telegram]
+
+  - name: "Disco casi lleno"
+    match: "No space left on device"
+    min_severity: error
+    source_type: any
+    threshold: 1
+    window_seconds: 60
+    cooldown_seconds: 3600
+    severity: critical
+    notify: [telegram, email]

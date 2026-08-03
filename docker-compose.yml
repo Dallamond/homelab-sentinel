@@ -1,0 +1,35 @@
+# Uso por defecto: TODO en un único host (el mini PC), modo "standalone"
+# (agente + servidor + dashboard en el mismo contenedor). Es lo más simple
+# y es lo que necesitas si de momento solo vigilas ese host.
+#
+#   docker compose up -d
+#   -> dashboard en http://<ip-del-minipc>:8088
+#
+# Si más adelante quieres vigilar también el NAS, usa
+# docker-compose.agent.yml en el NAS (ver README) y no toques este archivo:
+# el mini PC pasa a actuar de servidor central para ambos.
+
+services:
+  sentinel:
+    build: .
+    image: homelab-sentinel:latest
+    container_name: homelab-sentinel
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      ROLE: standalone
+      HOST_NAME: ${HOST_NAME:-minipc}
+      DATABASE_URL: sqlite+aiosqlite:////app/data/sentinel.db
+      AGENT_API_KEY: ${AGENT_API_KEY:-change-me}
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./rules.yaml:/app/rules.yaml:ro
+      # journald: acceso de solo lectura al journal del host
+      - /var/log/journal:/var/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - /run/systemd/journal:/run/systemd/journal:ro
+      # docker: socket de solo lectura para poder leer logs de otros contenedores
+      - /var/run/docker.sock:/var/run/docker.sock:ro

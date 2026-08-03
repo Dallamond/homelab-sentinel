@@ -1,0 +1,19 @@
+# Ejemplo de unidad systemd para correr el servidor SIN Docker,
+# directamente con Python, en caso de que prefieras no dockerizarlo.
+# Copia a /etc/systemd/system/homelab-sentinel.service y ajusta rutas.
+
+[Unit]
+Description=homelab-sentinel (log monitoring + alerting)
+After=network.target
+
+[Service]
+Type=simple
+User=sentinel
+WorkingDirectory=/opt/homelab-sentinel
+EnvironmentFile=/opt/homelab-sentinel/.env
+ExecStart=/opt/homelab-sentinel/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8088
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
