@@ -24,7 +24,10 @@ import httpx
 
 API = "http://localhost:8088/api"
 AGENT_API_KEY = os.environ.get("AGENT_API_KEY", "change-me")
+DASHBOARD_API_KEY = os.environ.get("DASHBOARD_API_KEY", "")
 HEADERS = {"X-Agent-Key": AGENT_API_KEY}
+if DASHBOARD_API_KEY:
+    HEADERS["X-Dashboard-Key"] = DASHBOARD_API_KEY
 
 FAKE_HOSTS = ["minipc-demo", "nas-demo"]
 

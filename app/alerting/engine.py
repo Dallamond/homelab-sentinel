@@ -104,3 +104,19 @@ class AlertEngine:
             if rule.matches(event) and rule.register_and_check(event):
                 fired.append(rule)
         return fired
+
+    def as_dicts(self) -> list[dict]:
+        return [
+            {
+                "name": rule.name,
+                "match": rule.pattern.pattern,
+                "min_severity": rule.min_severity.value,
+                "source_type": rule.source_type,
+                "threshold": rule.threshold,
+                "window_seconds": rule.window_seconds,
+                "cooldown_seconds": rule.cooldown_seconds,
+                "severity": rule.severity.value,
+                "notify": list(rule.notify),
+            }
+            for rule in self.rules
+        ]

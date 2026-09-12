@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY frontend ./frontend
 COPY rules.example.yaml ./rules.example.yaml
+COPY rules.yaml ./rules.yaml
 
 RUN mkdir -p /app/data
 

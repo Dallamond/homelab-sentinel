@@ -21,9 +21,14 @@ logger = logging.getLogger(__name__)
 _engine = AlertEngine(load_rules(settings.rules_path))
 
 
-def reload_rules() -> None:
+def get_engine() -> AlertEngine:
+    return _engine
+
+
+def reload_rules() -> AlertEngine:
     global _engine
     _engine = AlertEngine(load_rules(settings.rules_path))
+    return _engine
 
 
 async def process_event(session: AsyncSession, host: str, event: RawEvent) -> None:

@@ -84,3 +84,20 @@ class ExplainRequest(BaseModel):
 
 class ExplainResponse(BaseModel):
     explanation: str
+
+
+class RuleOut(BaseModel):
+    name: str
+    match: str
+    min_severity: str
+    source_type: str
+    threshold: int
+    window_seconds: int
+    cooldown_seconds: int
+    severity: str
+    notify: list[str]
+
+
+class ReloadRulesResponse(BaseModel):
+    loaded: int
+    rules: list[RuleOut]

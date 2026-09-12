@@ -1,7 +1,139 @@
 const API = "/api";
 
+// --- Config opcional desde meta tags en el HTML ---
+function getMeta(name) {
+  const el = document.querySelector(`meta[name="${name}"]`);
+  return el ? el.getAttribute("content") : "";
+}
+const META_DASHBOARD_API_KEY = getMeta("dashboard-api-key") || "";
+const isDemo = getMeta("demo-mode") === "true";
+
+// Persistencia de la clave del dashboard en localStorage
+const LS_KEY = "sentinel_dashboard_key";
+function getDashboardKey() {
+  try { return localStorage.getItem(LS_KEY) || META_DASHBOARD_API_KEY; }
+  catch { return META_DASHBOARD_API_KEY; }
+}
+function setDashboardKey(value) {
+  try {
+    if (value) localStorage.setItem(LS_KEY, value);
+    else localStorage.removeItem(LS_KEY);
+  } catch { /* localStorage no disponible */ }
+}
+
+function showAuthBox() {
+  const box = document.getElementById("authBox");
+  if (box) box.classList.remove("hidden");
+}
+function hideAuthBox() {
+  const box = document.getElementById("authBox");
+  if (box) box.classList.add("hidden");
+}
+
 function sevClass(sev) { return `sev sev-${sev}`; }
 function fmtTime(iso) { return new Date(iso).toLocaleString(); }
+function fmtTimeShort(iso) { return new Date(iso).toLocaleTimeString(); }
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Headers comunes
+function authHeaders() {
+  const h = { "Content-Type": "application/json" };
+  const key = getDashboardKey();
+  if (key) h["X-Dashboard-Key"] = key;
+  return h;
+}
+
+// Interceptor global de 401 → mostrar auth box
+const _rawFetch = window.fetch.bind(window);
+window.fetch = async (url, options = {}) => {
+  const res = await _rawFetch(url, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers || {}) },
+  });
+  if (res.status === 401 && !isDemo) showAuthBox();
+  return res;
+};
+
+// --- Hosts en tiempo real ---
+const LIVE_THRESHOLD_MS = 15_000;
+const RECENT_THRESHOLD_MS = 5 * 60_000;
+
+let lastKnownEvents = [];
+let lastKnownSources = [];
+
+function renderHostsStrip() {
+  const strip = document.getElementById("hostsStrip");
+  if (!strip) return;
+
+  const hosts = new Set([
+    ...lastKnownEvents.map((e) => e.host),
+    ...lastKnownSources.map((s) => s.host),
+  ]);
+
+  if (hosts.size === 0) {
+    strip.innerHTML = '<p class="hint">Todavía no se ha registrado ningún host.</p>';
+    updateHostFilter([]);
+    return;
+  }
+
+  const now = Date.now();
+  strip.innerHTML = "";
+
+  [...hosts].sort().forEach((host) => {
+    const hostEvents = lastKnownEvents.filter((e) => e.host === host);
+    const lastEvent = hostEvents.reduce(
+      (latest, e) => (!latest || new Date(e.timestamp) > new Date(latest.timestamp) ? e : latest),
+      null
+    );
+    const activeSources = lastKnownSources.filter((s) => s.host === host && s.enabled).length;
+
+    let dotClass = "dot-stale";
+    let statusText = "Sin datos recientes";
+    if (lastEvent) {
+      const age = now - new Date(lastEvent.timestamp).getTime();
+      if (age <= LIVE_THRESHOLD_MS) {
+        dotClass = "dot-live";
+        statusText = "Leyendo en tiempo real";
+      } else if (age <= RECENT_THRESHOLD_MS) {
+        dotClass = "dot-recent";
+        statusText = "Activo recientemente";
+      } else {
+        statusText = "Sin datos recientes";
+      }
+    }
+
+    const card = document.createElement("div");
+    card.className = "host-card";
+    card.innerHTML = `
+      <div class="host-name">${escapeHtml(host)}</div>
+      <div class="host-status"><span class="dot ${dotClass}"></span>${statusText}</div>
+      <div class="host-meta">${lastEvent ? `Última actividad: ${fmtTimeShort(lastEvent.timestamp)}` : "Sin eventos todavía"}</div>
+      <div class="host-meta">${activeSources} fuente${activeSources === 1 ? "" : "s"} activa${activeSources === 1 ? "" : "s"}</div>
+    `;
+    strip.appendChild(card);
+  });
+
+  updateHostFilter([...hosts].sort());
+}
+
+function updateHostFilter(hosts) {
+  const sel = document.getElementById("hostFilter");
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">todos</option>' + hosts.map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join("");
+  if (hosts.includes(current)) sel.value = current;
+  else sel.value = "";
+}
+
+function markRefreshed() {
+  const el = document.getElementById("lastRefresh");
+  if (el) el.textContent = `Última actualización: ${new Date().toLocaleTimeString()}`;
+}
 
 // --- Tabs ---
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -19,8 +151,15 @@ async function checkHealth() {
   try {
     const res = await fetch(`${API}/health`);
     const data = await res.json();
-    el.textContent = `${data.status} · ${data.role} · ${data.host}`;
+    el.textContent = `${data.status} · ${data.role} · ${data.host}${data.auth_required ? " 🔐" : ""}`;
     el.className = "badge ok";
+    // Si el backend pide auth y no tenemos clave → mostrar auth box
+    if (data.auth_required && !getDashboardKey()) showAuthBox();
+    else if (data.auth_required && getDashboardKey()) {
+      // Tenemos clave almacenada; ocultamos auth box
+      // (si falla la siguiente petición, el interceptor de 401 lo volverá a mostrar)
+      hideAuthBox();
+    } else hideAuthBox();
   } catch {
     el.textContent = "sin conexión";
     el.className = "badge down";
@@ -30,46 +169,85 @@ async function checkHealth() {
 // --- Events / live feed ---
 let severityChart;
 function renderSeverityChart(events) {
-  const counts = { debug: 0, info: 0, warning: 0, error: 0, critical: 0 };
-  events.forEach((e) => { counts[e.severity] = (counts[e.severity] || 0) + 1; });
   const ctx = document.getElementById("severityChart");
-  const data = {
-    labels: Object.keys(counts),
-    datasets: [{
-      data: Object.values(counts),
-      backgroundColor: ["#6b7280", "#3b82f6", "#f59e0b", "#ef4444", "#dc2626"],
-    }],
-  };
-  if (severityChart) {
-    severityChart.data = data;
-    severityChart.update();
-  } else {
-    severityChart = new Chart(ctx, { type: "doughnut", data, options: { plugins: { legend: { labels: { color: "#e6e6e6" } } } } });
+  if (!ctx) return;
+
+  if (typeof Chart === "undefined") {
+    if (!ctx.dataset.warned) {
+      ctx.replaceWith(Object.assign(document.createElement("p"), {
+        className: "hint",
+        textContent: "Gráfico no disponible (Chart.js no cargó — probablemente sin conexión a internet). El resto del dashboard funciona igualmente.",
+      }));
+    }
+    return;
   }
+
+  try {
+    const counts = { debug: 0, info: 0, warning: 0, error: 0, critical: 0 };
+    events.forEach((e) => { counts[e.severity] = (counts[e.severity] || 0) + 1; });
+    const data = {
+      labels: Object.keys(counts),
+      datasets: [{
+        data: Object.values(counts),
+        backgroundColor: ["#6b7280", "#3b82f6", "#f0b429", "#ef4444", "#dc2626"],
+        borderWidth: 0,
+      }],
+    };
+    if (severityChart) {
+      severityChart.data = data;
+      severityChart.update();
+    } else {
+      severityChart = new Chart(ctx, {
+        type: "doughnut",
+        data,
+        options: { plugins: { legend: { labels: { color: "#c8cddb" } } } },
+      });
+    }
+  } catch (err) {
+    console.error("No se pudo dibujar el gráfico de severidad:", err);
+  }
+}
+
+function matchesSearch(event, query) {
+  if (!query) return true;
+  const haystack = `${event.message} ${event.source_name} ${event.host}`.toLowerCase();
+  return haystack.includes(query.toLowerCase());
 }
 
 async function loadEvents() {
   const severity = document.getElementById("severityFilter").value;
   const host = document.getElementById("hostFilter").value;
+  const search = document.getElementById("searchFilter").value.trim();
   const params = new URLSearchParams({ limit: "100" });
   if (severity) params.set("severity", severity);
   if (host) params.set("host", host);
 
-  const res = await fetch(`${API}/events?${params}`);
-  const events = await res.json();
+  const res = await fetch(`${API}/events?${params}`, { headers: authHeaders() });
+  const allEvents = await res.json();
+  lastKnownEvents = allEvents;
+  renderHostsStrip();
+  markRefreshed();
+
+  const events = allEvents.filter((e) => matchesSearch(e, search));
 
   renderSeverityChart(events);
 
   const tbody = document.querySelector("#eventsTable tbody");
   tbody.innerHTML = "";
+
+  if (events.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="hint">Sin eventos que coincidan con el filtro.</td></tr>`;
+    return;
+  }
+
   events.forEach((e) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${fmtTime(e.timestamp)}</td>
-      <td>${e.host}</td>
-      <td>${e.source_name}</td>
+      <td class="mono">${fmtTime(e.timestamp)}</td>
+      <td class="mono">${escapeHtml(e.host)}</td>
+      <td class="mono">${escapeHtml(e.source_name)}</td>
       <td><span class="${sevClass(e.severity)}">${e.severity}</span></td>
-      <td>${e.message.slice(0, 140)}</td>
+      <td>${escapeHtml(e.message.slice(0, 140))}</td>
       <td><button class="explain-btn" data-id="${e.id}">Explícame esto</button></td>
     `;
     tbody.appendChild(tr);
@@ -89,7 +267,7 @@ async function explainEvent(eventId) {
   try {
     const res = await fetch(`${API}/explain`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ event_id: Number(eventId) }),
     });
     if (!res.ok) throw new Error(await res.text());
@@ -104,54 +282,129 @@ document.getElementById("closeModal").addEventListener("click", () => {
 });
 
 // --- Alerts ---
+function updateAlertsBadge(count) {
+  const badge = document.getElementById("alertsBadge");
+  if (!badge) return;
+  badge.textContent = count > 0 ? String(count) : "";
+  badge.classList.toggle("hidden", count === 0);
+}
+
 async function loadAlerts() {
-  const res = await fetch(`${API}/alerts?limit=100`);
+  const res = await fetch(`${API}/alerts?limit=100`, { headers: authHeaders() });
   const alerts = await res.json();
+  updateAlertsBadge(alerts.length);
+
   const tbody = document.querySelector("#alertsTable tbody");
   tbody.innerHTML = "";
+
+  if (alerts.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="hint">Sin alertas todavía. Buena señal.</td></tr>`;
+    return;
+  }
+
   alerts.forEach((a) => {
     const tr = document.createElement("tr");
     const notified = [a.notified_telegram ? "telegram" : null, a.notified_email ? "email" : null]
       .filter(Boolean).join(", ") || "solo dashboard";
     tr.innerHTML = `
-      <td>${fmtTime(a.created_at)}</td>
-      <td>${a.rule_name}</td>
+      <td class="mono">${fmtTime(a.created_at)}</td>
+      <td>${escapeHtml(a.rule_name)}</td>
       <td><span class="${sevClass(a.severity)}">${a.severity}</span></td>
-      <td>${a.host} / ${a.source_name}</td>
-      <td>${a.summary}</td>
+      <td class="mono">${escapeHtml(a.host)} / ${escapeHtml(a.source_name)}</td>
+      <td>${escapeHtml(a.summary)}</td>
       <td>${notified}</td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-// --- Sources ---
+// --- Sources (agrupadas por host) ---
 async function loadSources() {
-  const res = await fetch(`${API}/sources`);
+  const res = await fetch(`${API}/sources`, { headers: authHeaders() });
   const sources = await res.json();
-  const tbody = document.querySelector("#sourcesTable tbody");
-  tbody.innerHTML = "";
-  sources.forEach((s) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${s.host}</td>
-      <td>${s.source_type}</td>
-      <td>${s.source_name}</td>
-      <td>${fmtTime(s.last_seen)}</td>
-      <td><input type="checkbox" class="toggle" data-id="${s.id}" ${s.enabled ? "checked" : ""}/></td>
+  lastKnownSources = sources;
+  renderHostsStrip();
+
+  const container = document.getElementById("sourcesByHost");
+  container.innerHTML = "";
+
+  if (sources.length === 0) {
+    container.innerHTML = '<p class="hint">Todavía no se ha descubierto ninguna fuente. Arranca un agente en un host y espera unos segundos.</p>';
+    return;
+  }
+
+  const byHost = sources.reduce((acc, s) => {
+    (acc[s.host] ||= []).push(s);
+    return acc;
+  }, {});
+
+  Object.keys(byHost).sort().forEach((host) => {
+    const hostSources = byHost[host].sort((a, b) => a.source_name.localeCompare(b.source_name));
+    const enabledCount = hostSources.filter((s) => s.enabled).length;
+
+    const section = document.createElement("div");
+    section.className = "source-host-group";
+    section.innerHTML = `
+      <div class="source-host-header">
+        <span class="source-host-name">${escapeHtml(host)}</span>
+        <span class="hint">${enabledCount} / ${hostSources.length} activas</span>
+      </div>
+      <table>
+        <thead><tr><th>Tipo</th><th>Nombre</th><th>Última vez visto</th><th>Activo</th></tr></thead>
+        <tbody>
+          ${hostSources.map((s) => `
+            <tr>
+              <td class="mono">${s.source_type}</td>
+              <td class="mono">${escapeHtml(s.source_name)}</td>
+              <td class="mono">${fmtTime(s.last_seen)}</td>
+              <td><input type="checkbox" class="toggle" data-id="${s.id}" ${s.enabled ? "checked" : ""}/></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
     `;
-    tbody.appendChild(tr);
+    container.appendChild(section);
   });
+
   document.querySelectorAll(".toggle").forEach((cb) => {
     cb.addEventListener("change", async () => {
-      await fetch(`${API}/sources/${cb.dataset.id}/toggle`, { method: "POST" });
+      await fetch(`${API}/sources/${cb.dataset.id}/toggle`, { method: "POST", headers: authHeaders() });
+      loadSources();
     });
   });
 }
 
 // --- Summaries ---
+function renderMarkdownLite(md) {
+  const lines = md.split("\n");
+  let html = "";
+  let inList = false;
+
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  const inline = (text) =>
+    escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line === "") { closeList(); continue; }
+    if (line.startsWith("## ")) { closeList(); html += `<h4>${inline(line.slice(3))}</h4>`; continue; }
+    if (line.startsWith("# ")) { closeList(); html += `<h3>${inline(line.slice(2))}</h3>`; continue; }
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      if (!inList) { html += "<ul>"; inList = true; }
+      html += `<li>${inline(line.slice(2))}</li>`;
+      continue;
+    }
+    closeList();
+    html += `<p>${inline(line)}</p>`;
+  }
+  closeList();
+  return html;
+}
+
 async function loadSummaries() {
-  const res = await fetch(`${API}/summaries`);
+  const res = await fetch(`${API}/summaries`, { headers: authHeaders() });
   const summaries = await res.json();
   const container = document.getElementById("summariesList");
   container.innerHTML = "";
@@ -163,25 +416,92 @@ async function loadSummaries() {
     const div = document.createElement("div");
     div.className = "summary-item";
     div.innerHTML = `
-      <h4>Resumen ${s.period} (${s.backend_used})</h4>
+      <div class="summary-header">
+        <span class="summary-period">${s.period === "weekly" ? "Semanal" : "Mensual"}</span>
+        <span class="hint">generado con ${escapeHtml(s.backend_used)}</span>
+      </div>
       <div class="meta">${fmtTime(s.period_start)} → ${fmtTime(s.period_end)}</div>
-      <div>${s.content_md.replace(/\n/g, "<br/>")}</div>
+      <div class="summary-body">${renderMarkdownLite(s.content_md)}</div>
     `;
     container.appendChild(div);
   });
 }
 
 document.getElementById("genWeekly").addEventListener("click", async () => {
-  await fetch(`${API}/summaries/generate?period=weekly`, { method: "POST" });
-  loadSummaries();
+  const btn = document.getElementById("genWeekly");
+  btn.disabled = true;
+  btn.textContent = "Generando...";
+  try {
+    await fetch(`${API}/summaries/generate?period=weekly`, { method: "POST", headers: authHeaders() });
+    loadSummaries();
+  } catch (e) {
+    alert("Error: " + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Generar resumen semanal ahora";
+  }
 });
 document.getElementById("genMonthly").addEventListener("click", async () => {
-  await fetch(`${API}/summaries/generate?period=monthly`, { method: "POST" });
-  loadSummaries();
+  const btn = document.getElementById("genMonthly");
+  btn.disabled = true;
+  btn.textContent = "Generando...";
+  try {
+    await fetch(`${API}/summaries/generate?period=monthly`, { method: "POST", headers: authHeaders() });
+    loadSummaries();
+  } catch (e) {
+    alert("Error: " + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Generar resumen mensual ahora";
+  }
 });
 
-document.getElementById("refreshEvents").addEventListener("click", loadEvents);
-document.getElementById("severityFilter").addEventListener("change", loadEvents);
+// --- Rules ---
+async function loadRules() {
+  const res = await fetch(`${API}/rules`, { headers: authHeaders() });
+  const rules = await res.json();
+  const container = document.getElementById("rulesList");
+  container.innerHTML = "";
+  if (rules.length === 0) {
+    container.innerHTML = '<p class="hint">No hay reglas cargadas. Edita rules.yaml y recarga.</p>';
+    return;
+  }
+  rules.forEach((r) => {
+    const div = document.createElement("div");
+    div.className = "rule-card";
+    const notify = r.notify.length ? r.notify.join(", ") : "solo dashboard";
+    div.innerHTML = `
+      <div class="rule-header">
+        <span class="rule-name">${escapeHtml(r.name)}</span>
+        <span class="${sevClass(r.severity)}">${r.severity}</span>
+      </div>
+      <div class="rule-meta">
+        <span class="mono">match: <code>${escapeHtml(r.match)}</code></span>
+        <span class="mono">origen: ${r.source_type}</span>
+        <span class="mono">min sev: ${r.min_severity}</span>
+        <span class="mono">umbral: ${r.threshold} en ${r.window_seconds}s</span>
+        <span class="mono">cooldown: ${r.cooldown_seconds}s</span>
+        <span class="mono">notifica: ${notify}</span>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+document.getElementById("reloadRules").addEventListener("click", async () => {
+  const btn = document.getElementById("reloadRules");
+  btn.disabled = true;
+  btn.textContent = "Recargando...";
+  try {
+    await fetch(`${API}/rules/reload`, { method: "POST", headers: authHeaders() });
+    loadRules();
+  } catch (e) {
+    alert("Error: " + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Recargar rules.yaml";
+  }
+});
 
 // --- Init ---
 checkHealth();
@@ -189,8 +509,44 @@ loadEvents();
 loadAlerts();
 loadSources();
 loadSummaries();
+loadRules();
+
+document.getElementById("refreshEvents").addEventListener("click", loadEvents);
+document.getElementById("severityFilter").addEventListener("change", loadEvents);
+document.getElementById("hostFilter").addEventListener("change", loadEvents);
+document.getElementById("searchFilter").addEventListener("input", () => {
+  clearTimeout(window.__searchDebounce);
+  window.__searchDebounce = setTimeout(loadEvents, 200);
+});
 
 setInterval(checkHealth, 15000);
 setInterval(loadEvents, 5000);
 setInterval(loadAlerts, 10000);
 setInterval(loadSources, 20000);
+setInterval(renderHostsStrip, 1000);
+
+// --- Auth box IIFE ---
+(function() {
+  const input = document.getElementById("authKeyInput");
+  const saveBtn = document.getElementById("authKeySave");
+  const errorEl = document.getElementById("authError");
+  if (!input || !saveBtn) return;
+
+  // Pre-rellenar si ya hay clave almacenada
+  const existing = getDashboardKey();
+  if (existing) input.value = existing;
+
+  async function saveKey() {
+    const key = input.value.trim();
+    setDashboardKey(key);
+    errorEl.textContent = "";
+    hideAuthBox();
+    // Reintentar salud con la nueva clave
+    await checkHealth();
+    // Si la clave es correcta, las peticiones siguientes funcionarán;
+    // si no, el interceptor de 401 volverá a mostrar el auth box.
+  }
+
+  saveBtn.addEventListener("click", saveKey);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") saveKey(); });
+})();

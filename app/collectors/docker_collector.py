@@ -44,7 +44,11 @@ class DockerCollector:
     def __init__(self, container_filters: list[str] | None = None, rescan_interval: int = 30) -> None:
         self.container_filters = container_filters or settings.docker_containers
         self.rescan_interval = rescan_interval
-        self._client = docker.from_env()
+        try:
+            self._client = docker.DockerClient(base_url=settings.docker_socket)
+        except Exception:  # noqa: BLE001
+            logger.exception("No se pudo conectar al daemon Docker en %s", settings.docker_socket)
+            self._client = None
         self._watched: set[str] = set()
         self._queue: asyncio.Queue[RawEvent] = asyncio.Queue()
 
@@ -79,6 +83,9 @@ class DockerCollector:
 
     async def _discovery_loop(self) -> None:
         while True:
+            if self._client is None:
+                await asyncio.sleep(self.rescan_interval)
+                continue
             try:
                 for container in self._client.containers.list():
                     if container.name in self._watched:

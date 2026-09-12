@@ -1,0 +1,4 @@
+# Instala esto SOLO si cambias DATABASE_URL a postgresql+asyncpg://...
+# No hace falta para el uso por defecto con SQLite.
+-r requirements.txt
+asyncpg==0.29.0

@@ -28,6 +28,7 @@ _enabled_cache: set[tuple[str, str]] = set()
 
 
 async def _register_and_refresh_enabled() -> None:
+    backoff = 5
     async with httpx.AsyncClient(base_url=settings.server_url, headers=_headers, timeout=15) as client:
         while True:
             try:
@@ -46,12 +47,21 @@ async def _register_and_refresh_enabled() -> None:
                     (s["source_type"], s["source_name"]) for s in resp.json() if s["enabled"]
                 }
                 logger.info("Fuentes activas en %s: %d", settings.host_name, len(_enabled_cache))
+                backoff = 5
             except Exception:  # noqa: BLE001
-                logger.exception("Fallo registrando/actualizando fuentes contra el servidor")
+                logger.exception(
+                    "Fallo registrando/actualizando fuentes contra el servidor (reintento en %ss)",
+                    backoff,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60)
+                continue
             await asyncio.sleep(settings.agent_discovery_interval_seconds)
 
 
 async def _push_loop(queue: asyncio.Queue) -> None:
+    max_buffer = settings.agent_push_max_buffer
+    backoff = settings.agent_push_interval_seconds
     async with httpx.AsyncClient(base_url=settings.server_url, headers=_headers, timeout=15) as client:
         buffer: list[dict] = []
         while True:
@@ -61,6 +71,15 @@ async def _push_loop(queue: asyncio.Queue) -> None:
             except asyncio.TimeoutError:
                 pass
 
+            if len(buffer) > max_buffer:
+                dropped = len(buffer) - max_buffer
+                buffer = buffer[-max_buffer:]
+                logger.warning(
+                    "Buffer de eventos recortado: se descartaron %d eventos más antiguos (tope=%d)",
+                    dropped,
+                    max_buffer,
+                )
+
             if buffer and (len(buffer) >= 50 or queue.empty()):
                 try:
                     await client.post(
@@ -68,20 +87,30 @@ async def _push_loop(queue: asyncio.Queue) -> None:
                         json={"host": settings.host_name, "events": buffer},
                     )
                     buffer = []
+                    backoff = settings.agent_push_interval_seconds
                 except Exception:  # noqa: BLE001
-                    logger.exception("Fallo enviando lote de eventos al servidor, se reintenta en el próximo ciclo")
+                    logger.exception(
+                        "Fallo enviando lote de eventos al servidor, reintento en %ss (buffer=%d)",
+                        backoff,
+                        len(buffer),
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
 
 
 async def _collect_into_queue(collector, queue: asyncio.Queue) -> None:
     async for event in collector.stream():
         if (event["source_type"].value, event["source_name"]) not in _enabled_cache:
             continue
+        if queue.qsize() >= settings.agent_push_max_buffer:
+            logger.warning("Cola de ingesta llena, se descarta un evento de %s", event["source_name"])
+            continue
         serializable = {**event, "source_type": event["source_type"].value, "severity": event["severity"].value}
         await queue.put(serializable)
 
 
 async def main() -> None:
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=settings.agent_push_max_buffer)
     tasks = [
         asyncio.create_task(_register_and_refresh_enabled()),
         asyncio.create_task(_push_loop(queue)),

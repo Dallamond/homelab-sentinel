@@ -6,9 +6,11 @@ razonables para desarrollo local.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Union
 
-from pydantic import Field
+import json
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,11 +37,21 @@ class Settings(BaseSettings):
     agent_api_key: str = Field(default="change-me", description="Token compartido entre agente y servidor.")
     agent_push_interval_seconds: int = 5
     agent_discovery_interval_seconds: int = 60
+    agent_push_max_buffer: int = Field(default=5000, description="Tope de eventos en memoria si el servidor central está caído.")
 
     # --- Collectors ---
+    # Listas de filtro opcionales: si están vacías se vigila TODO lo descubierto.
+    # - journald_units: lista de unidades systemd a seguir (ej. ["immich.service"]).
+    # - docker_containers: lista de prefijos/uñames de contenedores a seguir.
     collect_journald: bool = Field(default=True)
     collect_docker: bool = Field(default=True)
     docker_socket: str = Field(default="unix:///var/run/docker.sock")
+    # Normalizamos los campos de lista vía field_validator: pydantic-settings
+    # intenta json.loads() sobre los valores complejos y, si no parsean, lanza
+    # SettingsError. El tipo Union hace que los fallos de parseo NO sean
+    # fatales y deja pasar el string crudo a nuestro validador.
+    journald_units: Union[list[str], str] = Field(default_factory=list)
+    docker_containers: Union[list[str], str] = Field(default_factory=list)
 
     # --- Reglas de alertas (solo role=server|standalone) ---
     rules_path: Path = Field(default=BASE_DIR / "rules.yaml")
@@ -76,7 +88,31 @@ class Settings(BaseSettings):
     # --- API / Dashboard ---
     api_host: str = "0.0.0.0"
     api_port: int = 8088
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    cors_origins: Union[list[str], str] = Field(default_factory=lambda: ["*"])
+    # Si está vacío, el dashboard queda abierto (modo LAN). Si se rellena, el
+    # frontend pide la clave y la manda como X-Dashboard-Key.
+    dashboard_api_key: str = Field(default="", description="Clave opcional para proteger el dashboard y los endpoints de lectura.")
+    llm_rate_limit_explain: int = Field(default=20, description="Máx. llamadas a /api/explain por IP y ventana.")
+    llm_rate_limit_summary: int = Field(default=6, description="Máx. llamadas a /api/summaries/generate por IP y ventana.")
+    llm_rate_limit_window_seconds: int = Field(default=3600)
+
+    @field_validator("journald_units", "docker_containers", "cors_origins", mode="before")
+    @classmethod
+    def _split_space_or_csv(cls, value):
+        """Acepta JSON, lista, o string separado por espacios/comas."""
+        if value is None or value == "":
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("["):  # JSON: '["a", "b"]'
+                try:
+                    return json.loads(stripped)
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in stripped.replace(",", " ").split() if item.strip()]
+        return value
 
 
 settings = Settings()

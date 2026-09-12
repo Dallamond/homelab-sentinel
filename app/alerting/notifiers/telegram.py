@@ -11,12 +11,19 @@ from app.db.models import Alert
 logger = logging.getLogger(__name__)
 
 _SEVERITY_EMOJI = {
-    "debug": "🔍",
+    "debug": "·",
     "info": "ℹ️",
     "warning": "⚠️",
-    "error": "🔴",
+    "error": "❗",
     "critical": "🚨",
 }
+
+
+def _escape_markdown(text: str) -> str:
+    """Escapa los caracteres especiales del Markdown legado de Telegram."""
+    for char in ("\\", "_", "*", "`", "["):
+        text = text.replace(char, f"\\{char}")
+    return text
 
 
 class TelegramNotifier:
@@ -29,9 +36,9 @@ class TelegramNotifier:
 
         emoji = _SEVERITY_EMOJI.get(alert.severity.value, "")
         text = (
-            f"{emoji} *{alert.rule_name}*\n"
-            f"Host: `{alert.host}` · Origen: `{alert.source_name}`\n"
-            f"{alert.summary}"
+            f"{emoji} *{_escape_markdown(alert.rule_name)}*\n"
+            f"Host: `{_escape_markdown(alert.host)}` · Origen: `{_escape_markdown(alert.source_name)}`\n"
+            f"{_escape_markdown(alert.summary)}"
         )
         url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
         payload = {"chat_id": settings.telegram_chat_id, "text": text, "parse_mode": "Markdown"}

@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>homelab-sentinel</title>
+<title>homelab-sentinel (demo)</title>
+<meta name="demo-mode" content="true" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 </head>
@@ -18,20 +19,11 @@
       </svg>
     </span>
     <span class="brand-name">homelab<span class="brand-accent">/</span>sentinel</span>
+    <span class="demo-tag">MODO DEMO — datos falsos</span>
   </div>
-  <div class="header-right">
-    <div class="auth-box hidden" id="authBox">
-      <label>Clave del dashboard</label>
-      <div class="auth-row">
-        <input id="authKeyInput" type="password" placeholder="Introduce la clave…" />
-        <button id="authKeySave">Guardar</button>
-      </div>
-      <p class="auth-error" id="authError"></p>
-    </div>
-    <div class="header-status">
-      <div id="health" class="badge">comprobando...</div>
-      <div id="lastRefresh" class="last-refresh"></div>
-    </div>
+  <div class="header-status">
+    <div id="health" class="badge">comprobando...</div>
+    <div id="lastRefresh" class="last-refresh"></div>
   </div>
 </header>
 
@@ -72,7 +64,7 @@
           </select>
         </label>
         <button id="refreshEvents">Refrescar ahora</button>
-        <p class="hint">Auto-refresco cada 5s.</p>
+        <p class="hint">Auto-refresco cada 5s (con datos de mentira que se regeneran solos).</p>
       </div>
     </div>
     <div class="card">
@@ -137,6 +129,7 @@
   </div>
 </div>
 
+<script src="mock-data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
