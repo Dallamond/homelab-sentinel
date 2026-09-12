@@ -25,7 +25,12 @@ class GeminiSummarizer:
 
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                body = resp.text[:500]
+                raise RuntimeError(
+                    f"Gemini API devolvió HTTP {resp.status_code} "
+                    f"(modelo='{settings.gemini_model}'): {body}"
+                )
             data = resp.json()
 
         try:

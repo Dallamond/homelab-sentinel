@@ -17,6 +17,7 @@ from app.config import settings
 from app.db.models import MonitoredSource
 from app.db.session import get_session
 from app.pipeline import process_event
+from app.stream_grouping import TracebackMerger
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -71,20 +72,32 @@ async def _is_enabled(source_type: str, name: str) -> bool:
 
 async def _run_journald() -> None:
     collector = JournaldCollector()
+    merger = TracebackMerger()
     async for event in collector.stream():
-        if not await _is_enabled(event["source_type"].value, event["source_name"]):
-            continue
-        async with get_session() as session:
-            await process_event(session, settings.host_name, event)
+        for merged in merger.feed(event):
+            if not await _is_enabled(merged["source_type"].value, merged["source_name"]):
+                continue
+            async with get_session() as session:
+                await process_event(session, settings.host_name, merged)
+    for remaining in merger.flush():
+        if await _is_enabled(remaining["source_type"].value, remaining["source_name"]):
+            async with get_session() as session:
+                await process_event(session, settings.host_name, remaining)
 
 
 async def _run_docker() -> None:
     collector = DockerCollector()
+    merger = TracebackMerger()
     async for event in collector.stream():
-        if not await _is_enabled(event["source_type"].value, event["source_name"]):
-            continue
-        async with get_session() as session:
-            await process_event(session, settings.host_name, event)
+        for merged in merger.feed(event):
+            if not await _is_enabled(merged["source_type"].value, merged["source_name"]):
+                continue
+            async with get_session() as session:
+                await process_event(session, settings.host_name, merged)
+    for remaining in merger.flush():
+        if await _is_enabled(remaining["source_type"].value, remaining["source_name"]):
+            async with get_session() as session:
+                await process_event(session, settings.host_name, remaining)
 
 
 async def start_local_ingest() -> None:

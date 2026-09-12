@@ -57,6 +57,11 @@ class DockerCollector:
             return True
         return any(container.name.startswith(prefix) for prefix in self.container_filters)
 
+    def _is_excluded(self, container: Container) -> bool:
+        """Fuentes excluidas del feed (p. ej. el propio Sentinel para no
+        re-ingerir el ruido de sus requests /api/*)."""
+        return container.name in settings.excluded_sources
+
     async def _watch_container(self, container: Container) -> None:
         logger.info("Enganchando a logs de contenedor: %s", container.name)
         loop = asyncio.get_event_loop()
@@ -91,6 +96,8 @@ class DockerCollector:
                     if container.name in self._watched:
                         continue
                     if not self._matches_filter(container):
+                        continue
+                    if self._is_excluded(container):
                         continue
                     self._watched.add(container.name)
                     asyncio.create_task(self._watch_container(container))

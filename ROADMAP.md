@@ -3,7 +3,7 @@
 > **Este es el documento de trabajo del proyecto.** Cada cambio que Lucas pida se anota aquí,
 > se planifica, se implementa, se verifica y se despliega. La próxima sesión empieza por aquí.
 >
-> Última actualización: 12/09/2026 (viernes)
+> Última actualización: 12/09/2026 (viernes tarde — U1-U4 completados)
 > Estado general: ✅ **Desplegado y operativo en el nodo**
 
 ---
@@ -44,10 +44,10 @@ vía `docker-compose.agent.yml`.
 
 | # | Estado | Pedido | Notas / decisiones |
 |---|---|---|---|
-| U1 | ⏳ | **Vendorizar Chart.js** — quitarla dependencia de CDN externo (falla sin salida a internet) | Bajarlo y servirlo desde `frontend/` (buscar dónde se importa hoy) |
-| U2 | ⏳ | **Corregir modelo/versión de API de Gemini** — el 404 indica modelo inexistente en v1beta | Revisar `app/summarizer/gemini.py` y el modelo por defecto en `config.py` |
-| U3 | ⏳ | **Filtrar ruido de auto-monitorización** — el propio dashboard hace polling 5s a `/api/*` y genera cientos de "200 OK" inútiles | Excluir por defecto el propio contenedor `homelab-sentinel` y sus requests `/api/*` del feed |
-| U4 | ⏳ | **Agrupar tracebacks multilínea en un solo evento** — hoy sale una línea por cada `File "...", line ...` con severidad inconsistente | Plantear unirse en `local_ingest.py` / pipeline antes de persistir |
+| U1 | ✅ | **Vendorizar Chart.js** — quitarla dependencia de CDN externo (falla sin salida a internet) | Descargado `chart.umd.min.js` v4.4.7 a `frontend/vendor/`, referencia local en `index.html` |
+| U2 | ✅ | **Corregir modelo/versión de API de Gemini** — el 404 indica modelo inexistente en v1beta | Default cambiado a `gemini-2.5-flash` (flash estable actual). Errores HTTP ahora incluyen modelo + body |
+| U3 | ✅ | **Filtrar ruido de auto-monitorización** — el propio dashboard hace polling 5s a `/api/*` y genera cientos de "200 OK" inútiles | Nuevo setting `excluded_sources` (default `["homelab-sentinel"]`), aplicado en `DockerCollector._discovery_loop` |
+| U4 | ✅ | **Agrupar tracebacks multilínea en un solo evento** — hoy sale una línea por cada `File "...", line ...` con severidad inconsistente | Nuevo módulo `app/stream_grouping.py` con `TracebackMerger`, aplicado en `local_ingest` para journald y docker. Severidad = máxima de las líneas |
 
 ### 🔵 Ajustes + autenticación (prioridad 1 para uso normal)
 

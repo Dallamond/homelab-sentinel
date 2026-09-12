@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     collect_journald: bool = Field(default=True)
     collect_docker: bool = Field(default=True)
     docker_socket: str = Field(default="unix:///var/run/docker.sock")
+    # Fuentes que se excluyen del feed por defecto. Suele usarse para no
+    # monitorizar el propio Sentinel: el dashboard hace polling a /api/* cada
+    # pocos segundos y eso genera cientos de "200 OK" inútiles.
+    excluded_sources: Union[list[str], str] = Field(default_factory=lambda: ["homelab-sentinel"])
     # Normalizamos los campos de lista vía field_validator: pydantic-settings
     # intenta json.loads() sobre los valores complejos y, si no parsean, lanza
     # SettingsError. El tipo Union hace que los fallos de parseo NO sean
@@ -73,7 +77,7 @@ class Settings(BaseSettings):
     summarizer_backend: Literal["gemini", "ollama", "openai_compat", "none"] = "gemini"
 
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
@@ -96,7 +100,7 @@ class Settings(BaseSettings):
     llm_rate_limit_summary: int = Field(default=6, description="Máx. llamadas a /api/summaries/generate por IP y ventana.")
     llm_rate_limit_window_seconds: int = Field(default=3600)
 
-    @field_validator("journald_units", "docker_containers", "cors_origins", mode="before")
+    @field_validator("journald_units", "docker_containers", "cors_origins", "excluded_sources", mode="before")
     @classmethod
     def _split_space_or_csv(cls, value):
         """Acepta JSON, lista, o string separado por espacios/comas."""
