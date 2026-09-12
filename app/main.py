@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    from app.settings_store import apply_effective_settings
+    await apply_effective_settings()
     logger.info("Base de datos inicializada (%s)", settings.database_url)
 
     scheduler = None

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+from typing import Any, Literal
+
 from pydantic import BaseModel
 
 from app.db.models import Severity, SourceType
@@ -101,3 +103,25 @@ class RuleOut(BaseModel):
 class ReloadRulesResponse(BaseModel):
     loaded: int
     rules: list[RuleOut]
+
+
+# --- Ajustes (A1-A5) ---
+
+
+class SettingsUpdate(BaseModel):
+    updates: dict[str, str | bool | int | None] = {}
+
+
+class SettingsOut(BaseModel):
+    effective: dict[str, Any]
+    secret_keys: list[str]
+    overridden: list[str]
+
+
+class SettingsTestRequest(BaseModel):
+    channel: Literal["telegram", "email", "gemini", "ollama", "openai_compat"]
+
+
+class SettingsTestResponse(BaseModel):
+    ok: bool
+    message: str

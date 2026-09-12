@@ -78,6 +78,22 @@ class Alert(Base):
     notified_email: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class Setting(Base):
+    """
+    Override persistido de una clave de configuración. Tiene prioridad sobre la
+    variable de entorno del mismo nombre: se aplica en caliente sobre el objeto
+    global `settings` sin reiniciar (ver app/settings_store.py).
+
+    Solo pueden editarse las claves de EDITABLE_KEYS (whitelist), nunca las
+    secretas vuelven en claro al frontend (se enmascaran).
+    """
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+
+
 class SummaryReport(Base):
     """Resumen inteligente (semanal/mensual) generado por el summarizer LLM."""
 

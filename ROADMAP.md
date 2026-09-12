@@ -3,7 +3,7 @@
 > **Este es el documento de trabajo del proyecto.** Cada cambio que Lucas pida se anota aquí,
 > se planifica, se implementa, se verifica y se despliega. La próxima sesión empieza por aquí.
 >
-> Última actualización: 12/09/2026 (viernes tarde — U1-U4 completados)
+> Última actualización: 13/09/2026 (sábado — U1-U4 + A1-A5 completados)
 > Estado general: ✅ **Desplegado y operativo en el nodo**
 
 ---
@@ -13,7 +13,7 @@
 | Área | Estado | Notas |
 |---|---|---|
 | Código en GitHub | ✅ `Dallamond/homelab-sentinel` | `8211f00 feat: deployment-ready` sobre `b0d4390` (agosto) |
-| Tests | ✅ **48 pasando** | pytest asyncio (ver §4) |
+| Tests | ✅ **77 pasando** | pytest asyncio (ver §4); +15 A1-A5 + conftest DB fix |
 | Lint | ✅ Ruff limpio | `ruff check .` |
 | Contenedor | ✅ `homelab-sentinel:latest` | Docker en el nodo, `restart: unless-stopped` |
 | Servicio | ✅ Uvicorn en `:8088` | Dashboard + API (rol `standalone`) |
@@ -53,11 +53,11 @@ vía `docker-compose.agent.yml`.
 
 | # | Estado | Pedido | Notas / decisiones |
 |---|---|---|---|
-| A1 | ⏳ | **Sección de Ajustes en la GUI** — formularios para SUMMARIZER_BACKEND + API key/modelo, TELEGRAM_BOT_TOKEN/CHAT_ID, credenciales SMTP, DASHBOARD_API_KEY, AGENT_API_KEY | No tocar `.env` a mano ni reconstruir |
-| A2 | ⏳ | **Endpoint `POST /api/settings`** que guarde en una tabla de config en la DB y recargue en caliente | Patrón igual al botón "Recargar rules.yaml" pero para notificadores y summarizer; preferible DB a `.env` por recarga en caliente |
-| A3 | ⏳ | **Secretos enmascarados** — mostrar `••••1234`, no reenviarlos en claro al frontend tras guardar | Los APIs keys/passwords nunca vuelven al cliente |
-| A4 | ⏳ | **Botón "Probar conexión"** por integración (Telegram: mensaje de prueba; Gemini: llamada mínima; Email: correo de prueba) | Evita descubrir un 404 en producción a las bravas |
-| A5 | ⏳ | **Activar/mostrar `DASHBOARD_API_KEY`** — sobre todo ahora que Ajustes guardará secretos | Importante si se expone fuera de la LAN |
+| A1 | ✅ | **Sección de Ajustes en la GUI** — formularios para SUMMARIZER_BACKEND + API key/modelo, TELEGRAM_BOT_TOKEN/CHAT_ID, credenciales SMTP, DASHBOARD_API_KEY, AGENT_API_KEY | Implementado en `frontend/index.html` + `app.js`; 4 cards (Summarizer, Telegram, Email, Security) |
+| A2 | ✅ | **Endpoint `POST /api/settings`** que guarde en una tabla de config en la DB y recargue en caliente | Tabla `Setting` en `models.py`, `save_updates()` en `settings_store.py`, endpoints en `routes.py` |
+| A3 | ✅ | **Secretos enmascarados** — mostrar `••••1234`, no reenviarlos en claro al frontend tras guardar | Función `mask_secret()` + frontend `dataset.orig` tracking; backend ignora placeholders (empieza con `•`) |
+| A4 | ✅ | **Botón "Probar conexión"** por integración (Telegram: mensaje de prueba; Gemini: llamada mínima; Email: correo de prueba) | Módulo `test_connections.py` con tests reales (httpx, smtplib), endpoint `POST /api/settings/test` |
+| A5 | ✅ | **Activar/mostrar `DASHBOARD_API_KEY`** — sobre todo ahora que Ajustes guardará secretos | Configuración dinámicamente desde GUI; `_check_dashboard_auth` activa X-Dashboard-Key si está seteada; status badge en Security card |
 
 ### 🎨 Frontend / UX
 

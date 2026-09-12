@@ -330,3 +330,16 @@ input::placeholder { color: #565c6d; }
   color: var(--accent);
 }
 .modal-box #explainContent { line-height: 1.55; margin-bottom: 16px; color: var(--text); }
+
+/* --- Ajustes (settings) --- */
+.settings-fields { max-width: 520px; }
+.settings-group { margin-bottom: 16px; }
+.settings-group h2 { margin-bottom: 6px; }
+.settings-group .row { align-items: center; }
+.settings-status { margin-left: 10px; font-size: 0.76rem; }
+.settings-status.ok { color: var(--live); }
+.settings-status.err { color: var(--error); }
+.check-label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.check-label input[type="checkbox"] { width: auto; }
+#authStatusBadge { font-size: 0.72rem; }
+.badge.warn { background: rgba(224,167,46,0.1); color: var(--warning); border-color: rgba(224,167,46,0.25); }

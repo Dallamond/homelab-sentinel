@@ -41,6 +41,7 @@
   <button class="tab-btn" data-tab="sources">Fuentes</button>
   <button class="tab-btn" data-tab="rules">Reglas</button>
   <button class="tab-btn" data-tab="summaries">Resúmenes</button>
+  <button class="tab-btn" data-tab="settings">Ajustes</button>
 </nav>
 
 <main>
@@ -125,6 +126,89 @@
         <button id="genMonthly" class="secondary">Generar resumen mensual ahora</button>
       </div>
       <div id="summariesList"></div>
+    </div>
+  </section>
+
+  <section id="tab-settings" class="tab-content">
+    <!-- Summarizer / LLM -->
+    <div class="card settings-group" data-group="summarizer">
+      <h2>Resúmenes inteligentes (LLM)</h2>
+      <p class="hint">Backend usado para explicar eventos, generar resúmenes semanales/mensuales y responder preguntas sobre los logs.</p>
+      <div class="settings-fields">
+        <label>Backend
+          <select data-key="summarizer_backend">
+            <option value="none">none — desactivado</option>
+            <option value="gemini">Gemini (Google)</option>
+            <option value="ollama">Ollama (local)</option>
+            <option value="openai_compat">API compatible con OpenAI (OpenRouter, Groq…)</option>
+          </select>
+        </label>
+        <label>Clave de API (Gemini) <input type="password" data-key="gemini_api_key" placeholder="••••••••" autocomplete="new-password" /></label>
+        <label>Modelo (Gemini) <input data-key="gemini_model" placeholder="gemini-2.5-flash" /></label>
+        <label>URL base (compatible OpenAI) <input data-key="openai_compat_base_url" placeholder="https://api.openrouter.ai/v1" /></label>
+        <label>Clave de API (compatible OpenAI) <input type="password" data-key="openai_compat_api_key" autocomplete="new-password" /></label>
+        <label>Modelo (compatible OpenAI) <input data-key="openai_compat_model" placeholder="openai/gpt-4o-mini" /></label>
+        <label>URL de Ollama <input data-key="ollama_base_url" placeholder="http://localhost:11434" /></label>
+        <label>Modelo de Ollama <input data-key="ollama_model" placeholder="llama3.1" /></label>
+      </div>
+      <div class="row">
+        <button class="settings-test" data-channel-summarizer="true">Probar conexión</button>
+        <button class="settings-save">Guardar</button>
+        <span class="settings-status hint"></span>
+      </div>
+    </div>
+
+    <!-- Telegram -->
+    <div class="card settings-group" data-group="telegram">
+      <h2>Notificaciones Telegram</h2>
+      <p class="hint">Crea un bot con @BotFather y añade su token aquí. El Chat ID lo obtienes enviando un mensaje a tu bot y consultando la API de Telegram.</p>
+      <div class="settings-fields">
+        <label class="check-label"><input type="checkbox" data-key="telegram_enabled" data-type="bool" /> Activado</label>
+        <label>Bot token <input type="password" data-key="telegram_bot_token" autocomplete="new-password" placeholder="123456:ABC-DEF…" /></label>
+        <label>Chat ID <input data-key="telegram_chat_id" placeholder="123456789" /></label>
+      </div>
+      <div class="row">
+        <button class="settings-test" data-channel="telegram">Probar conexión</button>
+        <button class="settings-save">Guardar</button>
+        <span class="settings-status hint"></span>
+      </div>
+    </div>
+
+    <!-- Email / SMTP -->
+    <div class="card settings-group" data-group="email">
+      <h2>Notificaciones por email (SMTP)</h2>
+      <p class="hint">Para Gmail usa una App Password (no tu contraseña normal). Puerto recomendado: 587 con STARTTLS.</p>
+      <div class="settings-fields">
+        <label class="check-label"><input type="checkbox" data-key="email_enabled" data-type="bool" /> Activado</label>
+        <label>Servidor SMTP <input data-key="smtp_host" placeholder="smtp.gmail.com" /></label>
+        <label>Puerto <input type="number" data-key="smtp_port" placeholder="587" /></label>
+        <label>Usuario <input data-key="smtp_user" placeholder="tu@gmail.com" /></label>
+        <label>Contraseña / App Password <input type="password" data-key="smtp_password" autocomplete="new-password" /></label>
+        <label>Email remitente <input data-key="email_from" placeholder="sentinel@tu-homelab.local" /></label>
+        <label>Email destinatario <input data-key="email_to" placeholder="tu@gmail.com" /></label>
+      </div>
+      <div class="row">
+        <button class="settings-test" data-channel="email">Probar conexión</button>
+        <button class="settings-save">Guardar</button>
+        <span class="settings-status hint"></span>
+      </div>
+    </div>
+
+    <!-- Seguridad -->
+    <div class="card settings-group" data-group="security">
+      <h2>Seguridad / API</h2>
+      <p class="hint">
+        <strong>Dashboard API key:</strong> si se establece, el panel y los endpoints de lectura exigen la cabecera <code>X-Dashboard-Key</code>.
+        Déjala vacía para acceso abierto en LAN. <strong>Agent API key:</strong> token que los agentes remotos envían para autenticarse en <code>/api/ingest</code>.
+      </p>
+      <div class="settings-fields">
+        <label>Dashboard API key <input type="password" data-key="dashboard_api_key" autocomplete="new-password" placeholder="vacía = acceso abierto" /></label>
+        <label>Agent API key <input type="password" data-key="agent_api_key" autocomplete="new-password" placeholder="token compartido con agentes" /></label>
+      </div>
+      <div class="row">
+        <button class="settings-save">Guardar</button>
+        <span id="authStatusBadge" class="badge"></span>
+      </div>
     </div>
   </section>
 </main>

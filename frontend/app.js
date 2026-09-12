@@ -510,6 +510,7 @@ loadAlerts();
 loadSources();
 loadSummaries();
 loadRules();
+loadSettings();
 
 document.getElementById("refreshEvents").addEventListener("click", loadEvents);
 document.getElementById("severityFilter").addEventListener("change", loadEvents);
@@ -550,3 +551,159 @@ setInterval(renderHostsStrip, 1000);
   saveBtn.addEventListener("click", saveKey);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") saveKey(); });
 })();
+
+// --- Ajustes (A1-A5) ---
+const SETTING_SECRET_KEYS = new Set([
+  "agent_api_key", "dashboard_api_key", "telegram_bot_token",
+  "smtp_password", "gemini_api_key", "openai_compat_api_key",
+]);
+
+function applySettingsData(data) {
+  const eff = data.effective;
+  document.querySelectorAll("[data-key]").forEach((el) => {
+    const key = el.dataset.key;
+    if (!(key in eff)) return;
+    const val = eff[key];
+    if (el.type === "checkbox" || el.dataset.type === "bool") {
+      el.checked = Boolean(val);
+    } else {
+      el.value = val ?? "";
+    }
+    el.dataset.orig = el.value;
+  });
+  updateAuthStatus(data);
+}
+
+function updateAuthStatus(data) {
+  const badge = document.getElementById("authStatusBadge");
+  if (!badge) return;
+  if (!data) { badge.textContent = "cargando..."; return; }
+  const key = data.effective.dashboard_api_key;
+  const hasKey = typeof key === "string" && key.length > 2;
+  badge.textContent = hasKey ? "🔐 Auth activa" : "ABIERTO (sin clave)";
+  badge.className = "badge " + (hasKey ? "ok" : "warn");
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch(`${API}/settings`, { headers: authHeaders() });
+    if (!res.ok) return;
+    applySettingsData(await res.json());
+  } catch { /* silent */ }
+}
+
+async function saveSettings(group) {
+  const container = document.querySelector(`.settings-group[data-group="${group}"]`);
+  if (!container) return;
+  const updates = {};
+  container.querySelectorAll("[data-key]").forEach((el) => {
+    const key = el.dataset.key;
+    if (el.type === "checkbox" || el.dataset.type === "bool") {
+      updates[key] = el.checked;
+      return;
+    }
+    const val = el.value;
+    const orig = el.dataset.orig;
+    // En campos secretos: si el usuario no lo tocó, no enviar
+    if (SETTING_SECRET_KEYS.has(key) && val === orig) return;
+    updates[key] = val || null;
+  });
+
+  const btn = container.querySelector(".settings-save");
+  const status = container.querySelector(".settings-status");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+  try {
+    const res = await fetch(`${API}/settings`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ updates }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+    applySettingsData(data);
+    if (status) { status.textContent = "✅ Guardado"; status.className = "settings-status hint ok"; }
+    // Si cambió la dashboard key, actualizar localStorage
+    if (updates.dashboard_api_key && !SETTING_SECRET_KEYS.has("dashboard_api_key")) {
+      setDashboardKey(updates.dashboard_api_key);
+    } else if (updates.dashboard_api_key !== undefined && updates.dashboard_api_key === null) {
+      // Revert to env default → clear localStorage
+      setDashboardKey("");
+    }
+    if (updates.dashboard_api_key !== undefined) {
+      await checkHealth();
+    }
+  } catch (e) {
+    if (status) { status.textContent = "❌ " + e.message; status.className = "settings-status hint err"; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Guardar";
+  }
+}
+
+async function testSettings(group) {
+  const container = document.querySelector(`.settings-group[data-group="${group}"]`);
+  if (!container) return;
+  const btn = container.querySelector(".settings-test");
+  const status = container.querySelector(".settings-status");
+
+  let channel;
+  if (btn.dataset.channelSummarizer) {
+    channel = container.querySelector("[data-key='summarizer_backend']").value;
+    if (channel === "none") {
+      if (status) { status.textContent = "Selecciona un backend primero"; status.className = "settings-status hint err"; }
+      return;
+    }
+  } else {
+    channel = btn.dataset.channel;
+  }
+
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Probando…";
+  if (status) { status.textContent = ""; status.className = "settings-status hint"; }
+
+  try {
+    const res = await fetch(`${API}/settings/test`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel }),
+    });
+    const data = await res.json();
+    if (status) {
+      status.textContent = data.message;
+      status.className = "settings-status hint " + (data.ok ? "ok" : "err");
+    }
+  } catch (e) {
+    if (status) { status.textContent = "Error de red: " + e; status.className = "settings-status hint err"; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+// Eventos — Guardar
+document.querySelectorAll(".settings-save").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const group = btn.closest(".settings-group").dataset.group;
+    saveSettings(group);
+  });
+});
+
+// Eventos — Probar conexión
+document.querySelectorAll(".settings-test").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const group = btn.closest(".settings-group").dataset.group;
+    testSettings(group);
+  });
+});
+
+// Cargar ajustes al abrir la pestaña
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.tab === "settings") loadSettings();
+  });
+});

@@ -31,11 +31,17 @@ from app.api.schemas import (
     LogEventOut,
     ReloadRulesResponse,
     RuleOut,
+    SettingsOut,
+    SettingsTestRequest,
+    SettingsTestResponse,
+    SettingsUpdate,
     SourceOut,
     SummaryOut,
 )
 from app.config import settings
 from app.db.models import Alert, LogEvent, MonitoredSource, SummaryReport
+import app.settings_store as settings_store
+import app.test_connections as test_connections
 from app.db.session import get_session
 from app.pipeline import process_event, reload_rules
 from app.rate_limit import limiter
@@ -245,3 +251,43 @@ async def reload_rules_endpoint() -> ReloadRulesResponse:
     engine = reload_rules()
     rules = [RuleOut(**item) for item in engine.as_dicts()]
     return ReloadRulesResponse(loaded=len(rules), rules=rules)
+
+
+# --- Ajustes (A1-A5) ---
+
+
+async def _effective_settings() -> SettingsOut:
+    """Helper: devuelve los valores efectivos (con secretos enmascarados)."""
+    overridden = await settings_store.get_overridden_keys()
+    effective: dict = {}
+    for key in sorted(settings_store.EDITABLE_KEYS):
+        value = getattr(settings, key)
+        if key in settings_store.SECRET_KEYS:
+            effective[key] = settings_store.mask_secret(str(value))
+        else:
+            effective[key] = value
+    return SettingsOut(
+        effective=effective,
+        secret_keys=sorted(settings_store.SECRET_KEYS),
+        overridden=overridden,
+    )
+
+
+@router.get("/settings", response_model=SettingsOut, dependencies=[Depends(_check_dashboard_auth)])
+async def get_settings() -> SettingsOut:
+    return await _effective_settings()
+
+
+@router.post("/settings", response_model=SettingsOut, dependencies=[Depends(_check_dashboard_auth)])
+async def update_settings(payload: SettingsUpdate) -> SettingsOut:
+    try:
+        await settings_store.save_updates(payload.updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return await _effective_settings()
+
+
+@router.post("/settings/test", response_model=SettingsTestResponse, dependencies=[Depends(_check_dashboard_auth)])
+async def test_settings_connection(payload: SettingsTestRequest) -> SettingsTestResponse:
+    ok, message = await test_connections.run(payload.channel)
+    return SettingsTestResponse(ok=ok, message=message)
